@@ -1,16 +1,30 @@
 <!doctype html>
 <html lang="fr">
 <head>
-  <meta charset="utf-8">
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Affichage Atelier</title>
+  <style>
+    body { margin:0; font-family: Arial, sans-serif; background:#111; color:#fff; }
+    .wrap { height:100vh; display:flex; flex-direction:column; padding:32px; box-sizing:border-box; gap:16px; }
+    header { display:flex; justify-content:space-between; align-items:center; gap:18px; opacity:.95; }
+    .clock { font-size:22px; opacity:.85; }
+    .title { font-size:30px; margin-top:8px; opacity:.95; }
+    .card { background:#1c1c1c; border-radius:16px; padding:18px; flex:1; overflow:auto; }
+    table { width:100%; border-collapse:collapse; font-size:22px; }
+    th, td { padding:10px 8px; border-bottom:1px solid rgba(255,255,255,.12); text-align:left; }
+    th { opacity:.8; }
+    .muted { opacity:.75; }
+    .center { display:flex; align-items:center; justify-content:center; height:100%; flex-direction:column; gap:10px; }
+    .big { font-size:56px; font-weight:800; }
+  </style>
 </head>
 
 <body>
-
   <div class="wrap">
 
     <!-- HEADER AVEC LOGO -->
-    <header style="display:flex; align-items:center; justify-content:space-between; gap:18px;">
+    <header>
       <div style="display:flex; align-items:center; gap:16px;">
         <img src="logo.png" alt="Logo" style="height:60px; width:auto; display:block;">
         <h1 style="margin:0; font-size:40px;">Affichage Atelier</h1>
@@ -20,7 +34,6 @@
 
     <!-- CONTENU -->
     <div class="title" id="slideTitle">Chargement…</div>
-
     <div class="card" id="slideContent">
       <div class="center">
         <div class="big">…</div>
@@ -30,7 +43,6 @@
 
   </div>
 
-  <!-- SCRIPT -->
   <script>
     const URLS = {
       kpi: "https://docs.google.com/spreadsheets/d/e/2PACX-1vQmZoPFbCCD4kkGygGwnuQrIXYeZXjHeksA9DYKmK5Ymk7utkPNI0yLn8eCZDYQuwnBYoGF0V8VOwrv/pub?gid=0&single=true&output=csv",
@@ -38,204 +50,193 @@
       anniversaires: "https://docs.google.com/spreadsheets/d/e/2PACX-1vQmZoPFbCCD4kkGygGwnuQrIXYeZXjHeksA9DYKmK5Ymk7utkPNI0yLn8eCZDYQuwnBYoGF0V8VOwrv/pub?gid=1777403445&single=true&output=csv",
       annonces: "https://docs.google.com/spreadsheets/d/e/2PACX-1vQmZoPFbCCD4kkGygGwnuQrIXYeZXjHeksA9DYKmK5Ymk7utkPNI0yLn8eCZDYQuwnBYoGF0V8VOwrv/pub?gid=909044731&single=true&output=csv",
     };
-  </script>
 
-</body>
-</html>
+    console.log("URLs OK", URLS);
 
-  console.log("URLs OK", URLS);
+    // Réglages
+    const SLIDE_SECONDS = 20;
+    const REFRESH_MINUTES = 5;
+    const SLIDE_ORDER = ["kpi", "visites", "anniversaires", "annonces"];
+    let data = { kpi: [], visites: [], anniversaires: [], annonces: [] };
+    let slideIndex = 0;
 
-  // Réglages
-  const SLIDE_SECONDS = 20;
-  const REFRESH_MINUTES = 5;
-  const SLIDE_ORDER = ["kpi", "visites", "anniversaires", "annonces"];
-  let data = { kpi: [], visites: [], anniversaires: [], annonces: [] };
-  let slideIndex = 0;
+    function tickClock() {
+      const now = new Date();
+      const fmt = new Intl.DateTimeFormat("fr-FR", { dateStyle:"full", timeStyle:"short" });
+      document.getElementById("clock").textContent = fmt.format(now);
+    }
+    setInterval(tickClock, 1000);
+    tickClock();
 
-  function tickClock() {
-    const now = new Date();
-    const fmt = new Intl.DateTimeFormat("fr-FR", { dateStyle:"full", timeStyle:"short" });
-    document.getElementById("clock").textContent = fmt.format(now);
-  }
-  setInterval(tickClock, 1000);
-  tickClock();
+    // CSV parser robuste (gère guillemets/virgules)
+    function parseCSV(text) {
+      const rows = [];
+      let row = [], cur = "", inQuotes = false;
 
-  // CSV parser robuste (gère guillemets/virgules)
-  function parseCSV(text) {
-    const rows = [];
-    let row = [], cur = "", inQuotes = false;
+      const s = text.replace(/\r/g, "");
+      for (let i = 0; i < s.length; i++) {
+        const ch = s[i];
+        const next = s[i + 1];
 
-    const s = text.replace(/\r/g, "");
-    for (let i = 0; i < s.length; i++) {
-      const ch = s[i];
-      const next = s[i + 1];
+        if (ch === '"') {
+          if (inQuotes && next === '"') { cur += '"'; i++; }
+          else { inQuotes = !inQuotes; }
+        } else if (ch === "," && !inQuotes) {
+          row.push(cur); cur = "";
+        } else if (ch === "\n" && !inQuotes) {
+          row.push(cur); rows.push(row);
+          row = []; cur = "";
+        } else {
+          cur += ch;
+        }
+      }
+      if (cur.length || row.length) { row.push(cur); rows.push(row); }
 
-      if (ch === '"') {
-        if (inQuotes && next === '"') { cur += '"'; i++; }
-        else { inQuotes = !inQuotes; }
-      } else if (ch === "," && !inQuotes) {
-        row.push(cur);
-        cur = "";
-      } else if (ch === "\n" && !inQuotes) {
-        row.push(cur);
-        rows.push(row);
-        row = [];
-        cur = "";
-      } else {
-        cur += ch;
+      const headers = (rows.shift() || []).map(h => h.trim());
+      return rows
+        .filter(r => r.some(c => String(c ?? "").trim() !== ""))
+        .map(r => {
+          const obj = {};
+          headers.forEach((h, i) => obj[h] = (r[i] ?? "").trim());
+          return obj;
+        });
+    }
+
+    // loadAll avec logs
+    async function loadAll() {
+      for (const key of Object.keys(URLS)) {
+        const url = URLS[key];
+        console.log("Fetch:", key, url);
+
+        const res = await fetch(url, { cache: "no-store" });
+        console.log("Status:", key, res.status);
+
+        const txt = await res.text();
+        console.log("First chars:", key, txt.slice(0, 160));
+
+        data[key] = parseCSV(txt);
+        console.log("Rows parsed:", key, data[key].length);
       }
     }
-    if (cur.length || row.length) { row.push(cur); rows.push(row); }
 
-    const headers = (rows.shift() || []).map(h => h.trim());
-    return rows
-      .filter(r => r.some(c => String(c ?? "").trim() !== ""))
-      .map(r => {
-        const obj = {};
-        headers.forEach((h, i) => obj[h] = (r[i] ?? "").trim());
-        return obj;
-      });
-  }
-
-  // ✅ loadAll avec logs
-  async function loadAll() {
-    for (const key of Object.keys(URLS)) {
-      const url = URLS[key];
-      console.log("Fetch:", key, url);
-
-      const res = await fetch(url, { cache: "no-store" });
-      console.log("Status:", key, res.status);
-
-      const txt = await res.text();
-      console.log("First chars:", key, txt.slice(0, 160));
-
-      data[key] = parseCSV(txt);
-      console.log("Rows parsed:", key, data[key].length);
-    }
-  }
-
-  function todayISO() {
-    const d = new Date();
-    const yyyy = d.getFullYear();
-    const mm = String(d.getMonth()+1).padStart(2,"0");
-    const dd = String(d.getDate()).padStart(2,"0");
-    return `${yyyy}-${mm}-${dd}`;
-  }
-
-  function renderEmpty(title, message) {
-    document.getElementById("slideTitle").textContent = title;
-    document.getElementById("slideContent").innerHTML = `
-      <div class="center">
-        <div class="big">✓</div>
-        <div class="muted" style="font-size:22px">${message}</div>
-      </div>`;
-  }
-
-  function renderTable(title, rows, columns) {
-    document.getElementById("slideTitle").textContent = title;
-
-    const thead = `<thead><tr>${columns.map(c => `<th>${c.label}</th>`).join("")}</tr></thead>`;
-    const tbody = `<tbody>${
-      rows.slice(0, 10).map(r =>
-        `<tr>${columns.map(c => `<td>${(r[c.key] ?? "")}</td>`).join("")}</tr>`
-      ).join("")
-    }</tbody>`;
-
-    document.getElementById("slideContent").innerHTML = `<table>${thead}${tbody}</table>`;
-  }
-
-  function showSlide(kind) {
-    const t = todayISO();
-
-    if (kind === "kpi") {
-      const rows = data.kpi.filter(r => (r.date || "") === t);
-      return rows.length
-        ? renderTable("KPI du jour", rows, [
-            { key:"kpi", label:"KPI" },
-            { key:"valeur", label:"Valeur" },
-            { key:"objectif", label:"Objectif" },
-            { key:"unite", label:"Unité" },
-          ])
-        : renderEmpty("KPI du jour", "Aucun KPI pour aujourd’hui");
+    function todayISO() {
+      const d = new Date();
+      const yyyy = d.getFullYear();
+      const mm = String(d.getMonth()+1).padStart(2,"0");
+      const dd = String(d.getDate()).padStart(2,"0");
+      return `${yyyy}-${mm}-${dd}`;
     }
 
-    if (kind === "visites") {
-      const rows = data.visites
-        .filter(r => (r.date || "") === t)
-        .sort((a,b) => (a.heure||"").localeCompare(b.heure||""));
-      return rows.length
-        ? renderTable("Visites du jour", rows, [
-            { key:"heure", label:"Heure" },
-            { key:"societe", label:"Société" },
-            { key:"personnes", label:"Personnes" },
-            { key:"salle", label:"Salle" },
-            { key:"hote", label:"Hôte" },
-          ])
-        : renderEmpty("Visites du jour", "Aucune visite prévue aujourd’hui");
+    function renderEmpty(title, message) {
+      document.getElementById("slideTitle").textContent = title;
+      document.getElementById("slideContent").innerHTML = `
+        <div class="center">
+          <div class="big">✓</div>
+          <div class="muted" style="font-size:22px">${message}</div>
+        </div>`;
     }
 
-    if (kind === "anniversaires") {
-      const now = new Date();
-      const mmdd = String(now.getMonth()+1).padStart(2,"0") + "-" + String(now.getDate()).padStart(2,"0");
-      const rows = data.anniversaires.filter(r => (r.date_naissance || "").slice(5) === mmdd);
-      return rows.length
-        ? renderTable("🎂 Anniversaires", rows, [
-            { key:"prenom", label:"Prénom" },
-            { key:"nom", label:"Nom" },
-          ])
-        : renderEmpty("🎂 Anniversaires", "Aucun anniversaire aujourd’hui");
+    function renderTable(title, rows, columns) {
+      document.getElementById("slideTitle").textContent = title;
+
+      const thead = `<thead><tr>${columns.map(c => `<th>${c.label}</th>`).join("")}</tr></thead>`;
+      const tbody = `<tbody>${
+        rows.slice(0, 10).map(r =>
+          `<tr>${columns.map(c => `<td>${(r[c.key] ?? "")}</td>`).join("")}</tr>`
+        ).join("")
+      }</tbody>`;
+
+      document.getElementById("slideContent").innerHTML = `<table>${thead}${tbody}</table>`;
     }
 
-    if (kind === "annonces") {
-      const rows = data.annonces.filter(r => {
-        const debut = (r.debut || "").trim();
-        const fin = (r.fin || "").trim();
-        const okDebut = !debut || debut <= t;
-        const okFin = !fin || fin >= t;
-        return okDebut && okFin;
-      });
+    function showSlide(kind) {
+      const t = todayISO();
 
-      if (!rows.length) return renderEmpty("📢 Annonces", "Aucune annonce en cours");
+      if (kind === "kpi") {
+        const rows = data.kpi.filter(r => (r.date || "") === t);
+        return rows.length
+          ? renderTable("KPI du jour", rows, [
+              { key:"kpi", label:"KPI" },
+              { key:"valeur", label:"Valeur" },
+              { key:"objectif", label:"Objectif" },
+              { key:"unite", label:"Unité" },
+            ])
+          : renderEmpty("KPI du jour", "Aucun KPI pour aujourd’hui");
+      }
 
-      document.getElementById("slideTitle").textContent = "📢 Annonces";
-      document.getElementById("slideContent").innerHTML = rows.slice(0, 6).map(r => `
-        <div style="padding:14px 12px; border-bottom:1px solid rgba(255,255,255,.12);">
-          <div style="font-size:26px; font-weight:800;">${r.titre || "Annonce"}</div>
-          <div style="font-size:20px; opacity:.92; margin-top:6px;">${r.message || ""}</div>
-          <div class="muted" style="font-size:16px; margin-top:8px;">
-            ${((r.debut||"") || (r.fin||"")) ? `Du ${r.debut || "—"} au ${r.fin || "—"}` : ""}
+      if (kind === "visites") {
+        const rows = data.visites
+          .filter(r => (r.date || "") === t)
+          .sort((a,b) => (a.heure||"").localeCompare(b.heure||""));
+        return rows.length
+          ? renderTable("Visites du jour", rows, [
+              { key:"heure", label:"Heure" },
+              { key:"societe", label:"Société" },
+              { key:"personnes", label:"Personnes" },
+              { key:"salle", label:"Salle" },
+              { key:"hote", label:"Hôte" },
+            ])
+          : renderEmpty("Visites du jour", "Aucune visite prévue aujourd’hui");
+      }
+
+      if (kind === "anniversaires") {
+        const now = new Date();
+        const mmdd = String(now.getMonth()+1).padStart(2,"0") + "-" + String(now.getDate()).padStart(2,"0");
+        const rows = data.anniversaires.filter(r => (r.date_naissance || "").slice(5) === mmdd);
+        return rows.length
+          ? renderTable("🎂 Anniversaires", rows, [
+              { key:"prenom", label:"Prénom" },
+              { key:"nom", label:"Nom" },
+            ])
+          : renderEmpty("🎂 Anniversaires", "Aucun anniversaire aujourd’hui");
+      }
+
+      if (kind === "annonces") {
+        const rows = data.annonces.filter(r => {
+          const debut = (r.debut || "").trim();
+          const fin = (r.fin || "").trim();
+          const okDebut = !debut || debut <= t;
+          const okFin = !fin || fin >= t;
+          return okDebut && okFin;
+        });
+
+        if (!rows.length) return renderEmpty("📢 Annonces", "Aucune annonce en cours");
+
+        document.getElementById("slideTitle").textContent = "📢 Annonces";
+        document.getElementById("slideContent").innerHTML = rows.slice(0, 6).map(r => `
+          <div style="padding:14px 12px; border-bottom:1px solid rgba(255,255,255,.12);">
+            <div style="font-size:26px; font-weight:800;">${r.titre || "Annonce"}</div>
+            <div style="font-size:20px; opacity:.92; margin-top:6px;">${r.message || ""}</div>
+            <div class="muted" style="font-size:16px; margin-top:8px;">
+              ${((r.debut||"") || (r.fin||"")) ? `Du ${r.debut || "—"} au ${r.fin || "—"}` : ""}
+            </div>
           </div>
-        </div>
-      `).join("");
+        `).join("");
+      }
     }
-  }
 
-  function nextSlide() {
-    const kind = SLIDE_ORDER[slideIndex % SLIDE_ORDER.length];
-    showSlide(kind);
-    slideIndex++;
-  }
+    function nextSlide() {
+      const kind = SLIDE_ORDER[slideIndex % SLIDE_ORDER.length];
+      showSlide(kind);
+      slideIndex++;
+    }
 
-  async function boot() {
-    await loadAll();
-    nextSlide();
-    setInterval(nextSlide, SLIDE_SECONDS * 1000);
-    setInterval(loadAll, REFRESH_MINUTES * 60 * 1000);
-  }
+    async function boot() {
+      await loadAll();
+      nextSlide();
+      setInterval(nextSlide, SLIDE_SECONDS * 1000);
+      setInterval(loadAll, REFRESH_MINUTES * 60 * 1000);
+    }
 
-  boot().catch(err => {
-    console.error("BOOT ERROR:", err);
-    document.getElementById("slideTitle").textContent = "Erreur";
-    document.getElementById("slideContent").innerHTML =
-      `<div class="center">
-         <div class="big">⚠️</div>
-         <div class="muted" style="font-size:22px">${String(err)}</div>
-       </div>`;
-  });
-</script>
+    boot().catch(err => {
+      console.error("BOOT ERROR:", err);
+      document.getElementById("slideTitle").textContent = "Erreur";
+      document.getElementById("slideContent").innerHTML =
+        `<div class="center">
+          <div class="big">⚠️</div>
+          <div class="muted" style="font-size:22px">${String(err)}</div>
+        </div>`;
+    });
+  </script>
 </body>
 </html>
-
-
-
-
